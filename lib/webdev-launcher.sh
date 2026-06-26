@@ -14,6 +14,7 @@ PL_FILE_MANAGER="${PL_FILE_MANAGER:-nautilus}"
 PL_CLOSE_MAX_WORKSPACE="${PL_CLOSE_MAX_WORKSPACE:-5}"
 PL_LAUNCH_DELAY="${PL_LAUNCH_DELAY:-0.8}"
 PL_DETACH_LOG="${PL_DETACH_LOG:-/tmp/project-launch-${PROJECT_ID}.log}"
+PL_RESET_TMUX="${PL_RESET_TMUX:-0}"
 
 CODEX_DIR="${CODEX_DIR:-$HOME}"
 NVIM_DIR="${NVIM_DIR:-$CODEX_DIR}"
@@ -37,6 +38,7 @@ pl_init_array() {
 }
 
 pl_init_array DOCKER_COMMANDS
+pl_init_array PREFLIGHT_COMMANDS
 pl_init_array TMUX_WINDOWS
 pl_init_array APP_URLS
 pl_init_array JIRA_URLS
@@ -167,6 +169,18 @@ pl_run_docker_commands() {
   done
 }
 
+pl_run_preflight_commands() {
+  local spec dir command
+
+  [[ "${PROJECT_LAUNCH_DETACHED:-0}" == 1 ]] && return 0
+
+  for spec in "${PREFLIGHT_COMMANDS[@]}"; do
+    IFS='|' read -r dir command <<<"$spec"
+    [[ -n "${dir:-}" && -n "${command:-}" ]] || continue
+    pl_run_project_command "$dir" "$command"
+  done
+}
+
 pl_kill_tmux_sessions() {
   local session killed
   killed=""
@@ -179,12 +193,27 @@ pl_kill_tmux_sessions() {
   done
 }
 
+pl_reset_tmux_sessions() {
+  [[ "$PL_RESET_TMUX" == 1 ]] || return 0
+  pl_kill_tmux_sessions
+}
+
+pl_tmux_session_exists() {
+  local session="$1"
+  tmux has-session -t "$session" 2>/dev/null
+}
+
 pl_create_single_tmux_session() {
   local session="$1"
   local window_name="$2"
   local dir="$3"
   local command="$4"
   local pane_id
+
+  if pl_tmux_session_exists "$session"; then
+    printf 'Reusing existing tmux session: %s\n' "$session"
+    return 0
+  fi
 
   pane_id="$(tmux new-session -d -P -F '#{pane_id}' -s "$session" -n "$window_name" -c "$dir")"
   tmux send-keys -t "$pane_id" "$(pl_shell_cd_command "$dir" "$command")" C-m
@@ -197,6 +226,12 @@ pl_create_tool_tmux_sessions() {
 
 pl_create_run_tmux_session() {
   local spec name dir command split_dir split_command first_window first_name top_pane split_pane
+
+  if pl_tmux_session_exists "$SESSION"; then
+    printf 'Reusing existing tmux session: %s\n' "$SESSION"
+    return 0
+  fi
+
   first_window=1
   first_name=""
 
@@ -368,12 +403,13 @@ pl_apply_managed_resizes() {
 }
 
 launch_webdev_project() {
+  pl_run_preflight_commands
   pl_detach_if_needed "$@"
   printf 'Launching %s workspace...\n' "$PROJECT_NAME"
 
   pl_require_base_commands
   pl_close_workspaces
-  pl_kill_tmux_sessions
+  pl_reset_tmux_sessions
   pl_run_docker_commands
   pl_create_tool_tmux_sessions
   pl_create_run_tmux_session

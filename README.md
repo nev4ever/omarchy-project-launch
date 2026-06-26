@@ -24,6 +24,7 @@ These scripts are designed for this local desktop environment:
 - Shell: Bash
 - Terminal multiplexer: tmux
 - Containers: Docker Compose
+- Frontend tooling: Node.js/npm where a project needs it
 - Browser: Chromium by default
 - File manager: Nautilus
 - Other apps used by project launchers: Postman, Hey, WhatsApp for Linux
@@ -45,7 +46,8 @@ A launcher should be able to:
 
 - close windows on workspaces 1 through 5 before starting
 - start required Docker containers
-- create project tmux sessions for Codex, Neovim, and the running program
+- create or reuse project tmux sessions for Codex, Neovim, and the running
+  program
 - create multiple tmux windows and panes only in the running-program session
 - navigate each terminal or pane to the correct directory
 - run project commands such as dev servers, tests, and logs
@@ -112,15 +114,20 @@ identified later.
 
 ## Closing Existing Windows
 
-Each project launcher starts by closing existing windows on workspaces 1 through
-5 only. This leaves workspace 6 available for editing and debugging the launcher.
+Each project launcher closes existing windows on workspaces 1 through 5 only.
+Foreground preflight commands can run first so the launching terminal can still
+show prompts. Workspace 6 remains available for editing and debugging the
+launcher.
 
-Recommended cleanup order:
+Recommended launch order:
 
-1. Close Hyprland windows on workspaces 1 through 5.
-2. Kill the previous project tmux sessions by name.
-3. Run project Docker startup commands.
-4. Recreate the Codex, Neovim, and running-program tmux sessions.
+1. Run foreground preflight commands, such as sudo service startup.
+2. Detach when launched from an interactive terminal.
+3. Close Hyprland windows on workspaces 1 through 5.
+4. Reuse existing project tmux sessions by name, unless `PL_RESET_TMUX=1` is
+   set.
+5. Run project Docker startup commands.
+6. Create any missing Codex, Neovim, and running-program tmux sessions.
 
 Avoid blindly killing unrelated desktop windows unless the script is explicitly
 intended to reset the whole desktop session.
@@ -160,6 +167,19 @@ Current OC behavior is configured by `.env`:
 - `OC_SERVER_COMMAND`, `OC_BACKEND_COMMAND`, `OC_FRONTEND_COMMAND`, and
   `OC_CONFIG_FRONTEND_COMMAND` control tmux commands.
 
+Current Bestconnect behavior is configured by `.env`:
+
+- `BESTCONNECT_ROOT_DIR` selects the local backend repository.
+- `BESTCONNECT_FRONTEND_DIR` selects the local Angular frontend repository.
+- `BESTCONNECT_FRONTEND_PROXY_CONFIG` points Angular dev server requests at the
+  local backend without modifying the frontend repo's tracked proxy file.
+- `BESTCONNECT_PREFLIGHT_COMMAND` starts services that may need terminal
+  interaction before the launcher detaches, such as nginx.
+- `BESTCONNECT_BACKEND_COMMAND` and `BESTCONNECT_FRONTEND_COMMAND` run together
+  in the project tmux session.
+- `BESTCONNECT_APP_URLS` should point to the local frontend, normally
+  `http://localhost:4200`.
+
 Use `.env.example` as the template. The real `.env` file is intentionally
 ignored by git because it contains local paths, account-specific URLs, and
 private project details.
@@ -176,6 +196,10 @@ or split panes. The other two are single-window sessions.
 The shared `webdev` launcher expects project scripts to define arrays like:
 
 ```bash
+PREFLIGHT_COMMANDS=(
+  "$PROJECT_ROOT|systemctl is-active --quiet nginx || sudo systemctl start nginx"
+)
+
 DOCKER_COMMANDS=(
   "$PROJECT_ROOT|docker compose up -d"
 )
@@ -184,6 +208,12 @@ TMUX_WINDOWS=(
   "server|$PROJECT_ROOT|npm run dev|$PROJECT_ROOT|npm test -- --watch"
 )
 ```
+
+`PREFLIGHT_COMMANDS` run once in the foreground before the launcher detaches.
+Use them for commands that may need terminal interaction, such as a sudo
+password prompt. `DOCKER_COMMANDS` run after detaching, closing workspaces, and
+creating or reusing tmux sessions, so they should not require interactive
+input.
 
 The tmux window format is:
 
@@ -218,6 +248,35 @@ from an app launcher.
 
 Detached launch output is written to `/tmp/project-launch-<project-id>.log`, for
 example `/tmp/project-launch-oc.log`.
+
+By default, existing tmux sessions are reused. To force a fresh set of tmux
+sessions for one launch, run:
+
+```bash
+PL_RESET_TMUX=1 ./bestconnect.sh
+```
+
+## Bestconnect OAuth Mode
+
+Bestconnect local DATEV OAuth uses nginx on `http://localhost` as the registered
+redirect target. Switch the local nginx behavior with:
+
+```bash
+bin/bestconnect-oauth-mode.sh frontend
+bin/bestconnect-oauth-mode.sh postman
+bin/bestconnect-oauth-mode.sh status
+```
+
+`frontend` mode redirects DATEV back to the local Angular app at
+`http://localhost:4200/#/callback`. Use this for full browser login.
+
+`postman` mode proxies DATEV directly to the backend callback at
+`http://localhost:3003/auth/callback`. Use this for the old JSON-token browser
+response that can be pasted into Postman.
+
+The script writes `/etc/nginx/conf.d/localhost-oauth.conf`, runs `nginx -t`, and
+reloads nginx. It uses `sudo`, so run it from a terminal where you can enter
+your password.
 
 ## Current Notes
 
