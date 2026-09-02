@@ -9,7 +9,7 @@ usage() {
 Usage: bin/bestconnect-oauth-mode.sh frontend|postman|status
 
 Modes:
-  frontend  DATEV redirects to local Angular at http://localhost:4200/#/callback
+  frontend  DATEV redirects normal callbacks to local Angular and long-lived callbacks to backend
   postman   DATEV redirects directly to backend /auth/callback for JSON output
   status    Print the active nginx callback config
 USAGE
@@ -30,6 +30,10 @@ frontend_config='server {
     server_name localhost;
 
     location = / {
+        if ($arg_state ~ "^ll_") {
+            return 302 "http://localhost:3003/auth/callback$is_args$args";
+        }
+
         return 302 "http://localhost:4200/#/callback$is_args$args";
     }
 }'

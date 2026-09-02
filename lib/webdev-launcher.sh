@@ -109,13 +109,28 @@ pl_quote_command() {
   printf '%q ' "$@"
 }
 
+pl_lua_quote() {
+  jq -Rs .
+}
+
+pl_hypr_focus_workspace() {
+  local workspace="$1"
+  local lua_workspace
+
+  lua_workspace="$(printf '%s' "$workspace" | pl_lua_quote)"
+  hyprctl dispatch "hl.dsp.focus({ workspace = ${lua_workspace} })" >/dev/null
+}
+
 pl_hypr_exec() {
   local workspace="$1"
   shift
 
-  local command
+  local command lua_command lua_workspace
   command="$(pl_quote_command "$@")"
-  hyprctl dispatch exec "[workspace ${workspace} silent] ${command}" >/dev/null
+  lua_command="$(printf '%s' "$command" | pl_lua_quote)"
+  lua_workspace="$(printf '%s silent' "$workspace" | pl_lua_quote)"
+
+  hyprctl dispatch "hl.dsp.exec_cmd(${lua_command}, { workspace = ${lua_workspace} })" >/dev/null
 }
 
 pl_hypr_exec_shell() {
@@ -135,7 +150,7 @@ pl_launch_terminal() {
 }
 
 pl_close_workspaces() {
-  local addresses
+  local addresses lua_selector
 
   mapfile -t addresses < <(
     hyprctl clients -j |
@@ -144,7 +159,8 @@ pl_close_workspaces() {
   )
 
   for address in "${addresses[@]}"; do
-    hyprctl dispatch closewindow "address:$address" >/dev/null 2>&1 || true
+    lua_selector="$(printf 'address:%s' "$address" | pl_lua_quote)"
+    hyprctl dispatch "hl.dsp.window.close({ window = ${lua_selector} })" >/dev/null 2>&1 || true
     sleep 0.05
   done
 }
@@ -277,7 +293,7 @@ pl_launch_browser_window() {
 }
 
 pl_launch_workspace_1() {
-  hyprctl dispatch workspace 1 >/dev/null
+  pl_hypr_focus_workspace 1
   pl_launch_terminal 1 "${PROJECT_ID}-codex" "$CODEX_DIR" "tmux attach -t '$CODEX_SESSION'"
   sleep "$PL_LAUNCH_DELAY"
   pl_launch_terminal 1 "${PROJECT_ID}-nvim" "$NVIM_DIR" "tmux attach -t '$NVIM_SESSION'"
@@ -287,7 +303,7 @@ pl_launch_workspace_1() {
 }
 
 pl_launch_workspace_2() {
-  hyprctl dispatch workspace 2 >/dev/null
+  pl_hypr_focus_workspace 2
   pl_launch_browser_window 2 "${APP_URLS[@]}"
   sleep "$PL_LAUNCH_DELAY"
   pl_launch_terminal 2 "${PROJECT_ID}-run-mirror" "$RUN_DIR" "tmux attach -t '$SESSION'"
@@ -300,7 +316,7 @@ pl_launch_workspace_2() {
 }
 
 pl_launch_workspace_3() {
-  hyprctl dispatch workspace 3 >/dev/null
+  pl_hypr_focus_workspace 3
   pl_launch_browser_window 3 "${JIRA_URLS[@]}"
   sleep "$PL_LAUNCH_DELAY"
   pl_launch_browser_window 3 "${RIGHT_BROWSER_URLS[@]}"
@@ -308,7 +324,7 @@ pl_launch_workspace_3() {
 }
 
 pl_launch_workspace_4() {
-  hyprctl dispatch workspace 4 >/dev/null
+  pl_hypr_focus_workspace 4
   pl_hypr_exec_shell 4 "$WHATSAPP_COMMAND"
   sleep "$PL_LAUNCH_DELAY"
   pl_hypr_exec_shell 4 "$HEY_COMMAND"
@@ -316,7 +332,7 @@ pl_launch_workspace_4() {
 }
 
 pl_launch_workspace_5() {
-  hyprctl dispatch workspace 5 >/dev/null
+  pl_hypr_focus_workspace 5
 
   if [[ "${#FILE_BROWSER_DIRS[@]}" -gt 0 ]]; then
     pl_hypr_exec 5 "$PL_FILE_MANAGER" "${FILE_BROWSER_DIRS[0]}"
@@ -382,19 +398,29 @@ pl_wait_for_selector() {
 }
 
 pl_apply_managed_resizes() {
-  local spec workspace selector resize_params
+  local spec workspace selector resize_params resize_x resize_y
+  local lua_selector lua_x lua_y
 
   for spec in "${MANAGED_RESIZES[@]}"; do
     IFS='|' read -r workspace selector resize_params <<<"$spec"
     [[ -n "${workspace:-}" && -n "${selector:-}" && -n "${resize_params:-}" ]] || continue
 
-    hyprctl dispatch workspace "$workspace" >/dev/null 2>&1 || true
+    pl_hypr_focus_workspace "$workspace" >/dev/null 2>&1 || true
     if ! pl_wait_for_selector "$selector"; then
       printf 'Resize skipped: no window matched %s on workspace %s\n' "$selector" "$workspace" >&2
       continue
     fi
 
-    if hyprctl dispatch resizewindowpixel "${resize_params},${selector}" >/dev/null 2>&1; then
+    read -r resize_x resize_y <<<"$resize_params"
+    if [[ -z "${resize_x:-}" || -z "${resize_y:-}" ]]; then
+      printf 'Resize skipped: expected two values, got %s\n' "$resize_params" >&2
+      continue
+    fi
+
+    lua_selector="$(printf '%s' "$selector" | pl_lua_quote)"
+    lua_x="$(printf '%s' "$resize_x" | pl_lua_quote)"
+    lua_y="$(printf '%s' "$resize_y" | pl_lua_quote)"
+    if hyprctl dispatch "hl.dsp.window.resize({ window = ${lua_selector}, x = ${lua_x}, y = ${lua_y}, relative = true })" >/dev/null 2>&1; then
       printf 'Resize applied: workspace=%s selector=%s params=%s\n' "$workspace" "$selector" "$resize_params"
     else
       printf 'Resize failed: workspace=%s selector=%s params=%s\n' "$workspace" "$selector" "$resize_params" >&2
@@ -421,5 +447,5 @@ launch_webdev_project() {
   pl_launch_workspace_5
   pl_apply_managed_resizes
 
-  hyprctl dispatch workspace 1 >/dev/null
+  pl_hypr_focus_workspace 1
 }
