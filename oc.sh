@@ -23,9 +23,11 @@ CODEX_DIR="${OC_CODEX_DIR:-$OC_ROOT_DIR}"
 NVIM_DIR="${OC_NVIM_DIR:-$OC_ROOT_DIR}"
 RUN_DIR="${OC_RUN_DIR:-$OC_ROOT_DIR}"
 CODEX_COMMAND="${OC_CODEX_COMMAND:-codex}"
+CODEX_COMMAND_ENV_FILE="${OC_CODEX_COMMAND_ENV_FILE:-$OC_ROOT_DIR/oc-backend/.env}"
 NVIM_COMMAND="${OC_NVIM_COMMAND:-nvim .}"
 
 source "$SCRIPT_DIR/lib/webdev-launcher.sh"
+pl_apply_codex_resume_from_env "$CODEX_COMMAND_ENV_FILE"
 
 pl_array_from_env APP_URLS "${OC_APP_URLS:-http://localhost:4200|http://localhost:4201}"
 pl_array_from_env JIRA_URLS "${OC_JIRA_URLS:-}"

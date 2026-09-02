@@ -160,7 +160,9 @@ Current OC behavior is configured by `.env`:
 - `OC_ROOT_DIR`, `OC_FRONTEND_DIR`, and `OC_CONFIG_FRONTEND_DIR` select the
   local project directories.
 - `OC_CODEX_COMMAND` controls how Codex starts, for example with a specific
-  Node version.
+  Node version. `OC_CODEX_COMMAND_ENV_FILE` defaults to `oc-backend/.env`;
+  the launcher reads its last commented `codex resume <session-token>` command
+  and appends that resume token.
 - `OC_DOCKER_START_COMMAND` starts local containers.
 - `OC_JIRA_URLS`, `OC_APP_URLS`, and `OC_RIGHT_BROWSER_URLS` control browser
   tabs.
@@ -170,6 +172,8 @@ Current OC behavior is configured by `.env`:
 Current Bestconnect behavior is configured by `.env`:
 
 - `BESTCONNECT_ROOT_DIR` selects the local backend repository.
+- `BESTCONNECT_CODEX_COMMAND_ENV_FILE` defaults to the project-root `.env`;
+  the launcher reads its commented `codex resume <session-token>` command.
 - `BESTCONNECT_FRONTEND_DIR` selects the local Angular frontend repository.
 - `BESTCONNECT_FRONTEND_PROXY_CONFIG` points Angular dev server requests at the
   local backend without modifying the frontend repo's tracked proxy file.

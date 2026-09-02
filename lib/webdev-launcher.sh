@@ -62,6 +62,27 @@ pl_array_from_env() {
   target_array=("${parts[@]}")
 }
 
+pl_apply_codex_resume_from_env() {
+  local env_file="$1"
+  local session_token
+
+  if [[ ! -r "$env_file" ]]; then
+    printf 'Codex command file is not readable: %s\n' "$env_file" >&2
+    exit 1
+  fi
+
+  session_token="$({
+    sed -nE 's/^[[:space:]]*#[[:space:]]*codex[[:space:]]+resume[[:space:]]+([[:alnum:]_.-]+)[[:space:]]*$/\1/p' "$env_file" || true
+  } | tail -n 1)"
+
+  if [[ -z "$session_token" ]]; then
+    printf 'No commented "codex resume <session-token>" command found in %s\n' "$env_file" >&2
+    exit 1
+  fi
+
+  printf -v CODEX_COMMAND '%s resume %q' "$CODEX_COMMAND" "$session_token"
+}
+
 pl_require_command() {
   local command_name="$1"
 
