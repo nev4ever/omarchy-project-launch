@@ -15,6 +15,10 @@ PL_CLOSE_MAX_WORKSPACE="${PL_CLOSE_MAX_WORKSPACE:-5}"
 PL_LAUNCH_DELAY="${PL_LAUNCH_DELAY:-0.8}"
 PL_DETACH_LOG="${PL_DETACH_LOG:-/tmp/project-launch-${PROJECT_ID}.log}"
 PL_RESET_TMUX="${PL_RESET_TMUX:-0}"
+PL_LAYOUT="${PL_LAYOUT:-desktop}"
+PL_LAPTOP_MAX_WIDTH="${PL_LAPTOP_MAX_WIDTH:-1920}"
+PL_LAYOUT_WAIT_ATTEMPTS="${PL_LAYOUT_WAIT_ATTEMPTS:-60}"
+PL_LIBRARY_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 CODEX_DIR="${CODEX_DIR:-$HOME}"
 NVIM_DIR="${NVIM_DIR:-$CODEX_DIR}"
@@ -99,6 +103,43 @@ pl_require_base_commands() {
   pl_require_command "$PL_TERM"
   pl_require_command "$PL_BROWSER"
   pl_require_command "$PL_FILE_MANAGER"
+}
+
+pl_resolve_layout() {
+  case "$PL_LAYOUT" in
+    desktop|laptop) ;;
+    auto)
+      if [[ ! "$PL_LAPTOP_MAX_WIDTH" =~ ^[1-9][0-9]*$ ]]; then
+        printf 'PL_LAPTOP_MAX_WIDTH must be a positive integer\n' >&2
+        return 1
+      fi
+
+      local width
+      width="$(hyprctl monitors -j | jq -er '
+        [.[] | select(.disabled != true)] |
+        (map(select(.focused == true))[0] // .[0]) |
+        if . == null then error("No active monitor") else
+          (if ((.transform // 0) % 2) == 1 then .height else .width end) / (.scale // 1)
+        end
+      ')" || return 1
+
+      if awk -v width="$width" -v limit="$PL_LAPTOP_MAX_WIDTH" 'BEGIN { exit !(width <= limit) }'; then
+        PL_LAYOUT=laptop
+      else
+        PL_LAYOUT=desktop
+      fi
+      ;;
+    *)
+      printf 'Invalid PL_LAYOUT: %s (expected auto, desktop, or laptop)\n' "$PL_LAYOUT" >&2
+      return 1
+      ;;
+  esac
+
+  if [[ ! "$PL_LAYOUT_WAIT_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+    printf 'PL_LAYOUT_WAIT_ATTEMPTS must be a positive integer\n' >&2
+    return 1
+  fi
+  printf 'Window layout: %s\n' "$PL_LAYOUT"
 }
 
 pl_detach_if_needed() {
@@ -449,12 +490,59 @@ pl_apply_managed_resizes() {
   done
 }
 
+pl_group_workspace() {
+  local workspace="$1"
+  local expected="$2"
+  local preferred_title="${3:-}"
+  local count=0 attempt lua_path lua_title
+
+  [[ "$workspace" =~ ^[1-5]$ ]] || return 1
+  (( expected > 0 )) || return 0
+
+  for ((attempt = 0; attempt < PL_LAYOUT_WAIT_ATTEMPTS; attempt++)); do
+    count="$(hyprctl clients -j | jq --argjson workspace "$workspace" '
+      [.[] | select(.workspace.id == $workspace and .mapped != false and .pinned != true)] | length
+    ')" || return 1
+    (( count >= expected )) && break
+    sleep 0.25
+  done
+
+  if (( count < expected )); then
+    printf 'Layout: workspace %s has %s/%s windows; grouping those available\n' "$workspace" "$count" "$expected" >&2
+  fi
+
+  lua_path="$(printf '%s' "$PL_LIBRARY_DIR/laptop-layout.lua" | pl_lua_quote)"
+  lua_title="$(printf '%s' "$preferred_title" | pl_lua_quote)"
+  hyprctl eval "return dofile(${lua_path})(${workspace}, ${lua_title})"
+}
+
+pl_apply_window_layout() {
+  if [[ "$PL_LAYOUT" == desktop ]]; then
+    pl_apply_managed_resizes
+    return
+  fi
+
+  local browser_count=0 file_count="${#FILE_BROWSER_DIRS[@]}"
+  [[ "${#APP_URLS[@]}" -eq 0 ]] || browser_count=1
+  pl_group_workspace 1 3 "${PROJECT_ID}-codex"
+  pl_group_workspace 2 "$((browser_count + 1 + (POSTMAN_ENABLED == 1)))"
+  browser_count=0
+  [[ "${#JIRA_URLS[@]}" -eq 0 ]] || ((browser_count += 1))
+  [[ "${#RIGHT_BROWSER_URLS[@]}" -eq 0 ]] || ((browser_count += 1))
+  pl_group_workspace 3 "$browser_count"
+  pl_group_workspace 4 2
+  (( file_count <= 2 )) || file_count=2
+  pl_group_workspace 5 "$file_count"
+}
+
 launch_webdev_project() {
+  # Validate the layout before preflight commands or closing any windows.
+  pl_require_base_commands
+  pl_resolve_layout
   pl_run_preflight_commands
   pl_detach_if_needed "$@"
   printf 'Launching %s workspace...\n' "$PROJECT_NAME"
 
-  pl_require_base_commands
   pl_close_workspaces
   pl_reset_tmux_sessions
   pl_run_docker_commands
@@ -466,7 +554,7 @@ launch_webdev_project() {
   pl_launch_workspace_3
   pl_launch_workspace_4
   pl_launch_workspace_5
-  pl_apply_managed_resizes
+  pl_apply_window_layout
 
   pl_hypr_focus_workspace 1
 }

@@ -4,12 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_LAUNCH_SCRIPT="$SCRIPT_DIR/oc.sh"
 
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$SCRIPT_DIR/.env"
-  set +a
-fi
+source "$SCRIPT_DIR/lib/project-env.sh"
+pl_load_project_env "$SCRIPT_DIR" "$@"
 
 PROJECT_NAME="${OC_PROJECT_NAME:-OC}"
 PROJECT_ID="${OC_PROJECT_ID:-oc}"

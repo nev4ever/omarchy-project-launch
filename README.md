@@ -79,8 +79,72 @@ Fully deterministic placement and ordering is harder than just launching apps,
 because GUI applications may start slowly, reuse existing windows, or change
 their window titles/classes after launch.
 
-The current launcher uses Hyprland's normal tiling behavior. It does not force
-windows into floating mode, resize them, or move them after launch.
+The launcher selects a layout without changing the applications, tmux sessions,
+commands, URLs, or workspace assignments:
+
+- `PL_LAYOUT=desktop` (default): retain the original Hyprland tiling and optional
+  managed resizes, suitable for the ultrawide workstation. Existing workstation
+  configuration needs no changes.
+- `PL_LAYOUT=auto` (opt-in): use the laptop layout when the focused monitor is
+  at most 1920 logical pixels wide, otherwise use the desktop layout. Display
+  scaling and rotation are taken into account. For example, the Framework's
+  2880 × 1920 display at 2× scaling is 1440 logical pixels wide.
+- `PL_LAYOUT=laptop`: put the windows on each of workspaces 1 through 5 in a
+  native Hyprland tabbed group. Each selected window gets the full workspace
+  width. Codex is the initially selected terminal on workspace 1.
+
+Machine layouts are versioned in Git:
+
+- `profiles/desktop.env`: the workstation's original tiling (the default).
+- `profiles/framework.env`: the Framework 13's full-width tabbed layout.
+
+Keep the workstation's `.env` as it is. On the Framework only, select its
+tracked profile once:
+
+```bash
+printf 'framework\n' > .profile
+```
+
+Only the selector file `.profile` stays local and gitignored; the actual laptop
+settings are tracked in `profiles/framework.env`. A checkout without a selector
+continues to use the desktop profile, so pulling these changes on the workstation
+does not activate the laptop layout.
+
+You can also select a profile for one launch:
+
+```bash
+./oc.sh --profile framework
+./bestconnect.sh --profile desktop
+```
+
+`--profile` takes precedence over the `PL_PROFILE` environment variable and
+the local `.profile` selector. Configuration loads in this order: `.env`, the
+selected tracked profile, then `.env.local` for any private machine overrides.
+The existing project commands and browser URLs continue to come from `.env`.
+
+For automatic switching when docking the laptop to an ultrawide, change
+`PL_LAYOUT=laptop` to `PL_LAYOUT=auto` in `profiles/framework.env`. This affects
+only machines selecting the Framework profile. Selection happens at launch
+time, so attaching or removing a display takes effect on the next launch. Auto
+mode uses the focused monitor. `PL_LAPTOP_MAX_WIDTH` changes its width threshold.
+
+On the laptop, click a group tab or use Omarchy's existing
+`Super+Alt+Tab` / `Super+Alt+Shift+Tab` shortcuts to switch windows in the
+workspace. Browser tabs inside each browser window remain as configured.
+All five workspace assignments stay the same, and workspaces 6 and above remain
+untouched. No permanent Hyprland rules or keybindings are added.
+
+Grouping happens after the launch phases. The launcher waits up to 15 seconds
+per workspace for slow applications (`PL_LAYOUT_WAIT_ATTEMPTS=60`, checked
+every 0.25 seconds). If an app is missing or takes longer, it logs a warning and
+groups the windows that are available. Groups are then locked to keep later
+unrelated windows separate. Managed resizes apply only to the desktop layout.
+
+For this laptop, reuse a copy of your workstation's private `.env` so its app
+commands and account-specific browser URLs stay the same, then override local
+project paths in `.env.local`. The private files are not stored in this repository.
+The machine must have
+the configured terminal and supporting apps installed, just as on the workstation.
 
 If a project needs minor post-launch adjustment while keeping windows managed by
 Hyprland, use the optional `MANAGED_RESIZES` array. It calls Hyprland's
